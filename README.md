@@ -1,5 +1,7 @@
 # flymake-cppcheck
 
+> **_WARNING:_** This is still work-in-progress
+
 A Flymake backend for validating c/c++ files for Emacs (26+), using
 [cppcheck](https://cppcheck.sourceforge.io/)
 
