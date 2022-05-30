@@ -36,59 +36,94 @@
   :prefix "flymake-cppcheck-"
   :group 'tools)
 
-(defcustom flymake-cppcheck-path
+(defcustom flymake-cppcheck-program
   (executable-find "cppcheck")
   "The path to the `cppcheck' executable."
+  :type 'string)
+
+(defcustom flymake-cppcheck-additional-checks
+  "warning,style,performance,portability,information"
+  "Additional checks to enable."
+  :type 'string)
+
+(defcustom flymake-cppcheck-language
+  "c"
+  "Force particular language."
+  :type 'string)
+
+(defcustom flymake-cppcheck-jobs
+  4
+  "Number of jobs to check with."
+  :type 'integer)
+
+(defcustom flymake-cppcheck-platform
+  "native"
+  "Target platform to determine types and sizes."
+  :type 'string)
+
+(defcustom flymake-cppcheck-std
+  "c99"
+  "Target C/C++ standard."
   :type 'string)
 
 (defvar-local flymake-cppcheck--proc nil)
 
 (defun flymake-cppcheck (report-fn &rest _args)
   "Flymake backend for cppcheck report using REPORT-FN."
-  (unless (and flymake-cppcheck-path
-               (file-executable-p flymake-cppcheck-path))
-    (error "Could not find cppcheck executable"))
-
-  (when (process-live-p flymake-cppcheck--proc)
-    (kill-process flymake-cppcheck--proc)
-    (setq flymake-cppcheck--proc nil))
-
-  (let ((source (current-buffer)))
-    (save-restriction
-      (widen)
-      (setq
-       flymake-cppcheck--proc
-       (make-process
-        :name "flymake-cppcheck"
-        :noquery t
-        :buffer (generate-new-buffer " *flymake-cppcheck*")
-        :command (list flymake-cppcheck-path "--enable=style" "-j 1" "--language=c" "--platform=native" "--std=c89" "--template='{file}:{line}:{column}:{severity}:{id}:{message}'" "--quiet" (format "%s" (buffer-file-name)))
-        :sentinel
-        (lambda (proc _event)
-          (when (eq 'exit (process-status proc))
-            (unwind-protect
-                (if (with-current-buffer source (eq proc flymake-cppcheck--proc))
-                    (with-current-buffer (process-buffer proc)
-                      (goto-char (point-min))
-                      (let ((diags))
-                        (while (search-forward-regexp ".+?:\\([0-9]+\\):\\([0-9]+\\):\\(.*\\):\\(.*\\):\\(.*\\)$" nil t)
-                          (let ((region (flymake-diag-region source (string-to-number (match-string 1)) (string-to-number (match-string 2))))
-                                (error-type (match-string 3)))
-                            ;; expect `region' to only have 2 values (start . end)
-                            (push (flymake-make-diagnostic source
-                                                           (car region)
-                                                           (cdr region)
-                                                           (cond ((equal error-type "error") :error)
-                                                                 ((equal error-type "style") :warning)
-                                                                 ((equal error-type "warning") :warning)
-                                                                 ((equal error-type "information") :info)
-                                                                 ((equal error-type "performance") :info)
-                                                                 ((equal error-type "portability") :info))
-                                                           (format "%s:%s" (match-string 4) (match-string 5))) diags)))
-                        (funcall report-fn (reverse diags))))
-                  (flymake-log :warning "Canceling obsolete check %s"
-                               proc))
-              (kill-buffer (process-buffer proc))))))))))
+  (if (not flymake-cppcheck-program)
+      (error "No cppcheck program name set"))
+  (let ((flymake-cppcheck--executable-path (executable-find flymake-cppcheck-program)))
+    (if (or (null flymake-cppcheck--executable-path)
+            (not (file-executable-p flymake-cppcheck--executable-path)))
+        (error "Could not find '%s' executable" flymake-cppcheck-program))
+    (when (process-live-p flymake-cppcheck--proc)
+      (kill-process flymake-cppcheck--proc)
+      (setq flymake-cppcheck--proc nil))
+    (let ((source (current-buffer))
+          (cmd (list flymake-cppcheck-program
+                     (if flymake-cppcheck-additional-checks (format "%s=%s" "--enable" flymake-cppcheck-additional-checks))
+                     (if flymake-cppcheck-jobs (format "%s %d" "-j" flymake-cppcheck-jobs))
+                     (if flymake-cppcheck-language (format "%s=%s" "--language" flymake-cppcheck-language))
+                     (if flymake-cppcheck-platform (format "%s=%s" "--platform" flymake-cppcheck-platform))
+                     (if flymake-cppcheck-std (format "%s=%s" "--std" flymake-cppcheck-std))
+                     "--template='{file}:{line}:{column}:{severity}:{id}:{message}'" "--quiet" "--suppress=unusedFunction"
+                     (format "%s" (buffer-file-name)))))
+      (save-restriction
+        (widen)
+        (setq
+         flymake-cppcheck--proc
+         (make-process
+          :name "flymake-cppcheck"
+          :noquery t
+          :buffer (generate-new-buffer " *flymake-cppcheck*")
+          :command cmd
+          :sentinel
+          (lambda (proc _event)
+            (when (eq 'exit (process-status proc))
+              (unwind-protect
+                  (if (with-current-buffer source (eq proc flymake-cppcheck--proc))
+                      (with-current-buffer (process-buffer proc)
+                        (goto-char (point-min))
+                        (let ((diags))
+                          (while (search-forward-regexp ".+?:\\([0-9]+\\):\\([0-9]+\\):\\(.*\\):\\(.*\\):\\(.*\\)$" nil t)
+                            (let ((region (flymake-diag-region source (string-to-number (match-string 1)) (string-to-number (match-string 2))))
+                                  (error-type (match-string 3)))
+                              ;; expect `region' to only have 2 values (start . end)
+                              (push (flymake-make-diagnostic source
+                                                             (car region)
+                                                             (cdr region)
+                                                             (cond ((equal error-type "error") :error)
+                                                                   ((equal error-type "style") :warning)
+                                                                   ((equal error-type "warning") :warning)
+                                                                   ((equal error-type "information") :info)
+                                                                   ((equal error-type "performance") :info)
+                                                                   ((equal error-type "portability") :info)
+                                                                   (t :warning))
+                                                             (format "%s:%s" (match-string 4) (match-string 5))) diags)))
+                          (funcall report-fn (reverse diags))))
+                    (flymake-log :warning "Canceling obsolete check %s"
+                                 proc))
+                (kill-buffer (process-buffer proc)))))))))))
 
 ;;;###autoload
 (defun flymake-cppcheck-setup ()
