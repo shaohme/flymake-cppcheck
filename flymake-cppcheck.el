@@ -91,7 +91,6 @@
                      "--quiet"
                      "--template='{file}:{line}:{column}:{severity}:{id}:{message}'"
                      (format "%s" (buffer-file-name)))))
-      (message "OUT: %s" cmd)
       (save-restriction
         (widen)
         (setq
