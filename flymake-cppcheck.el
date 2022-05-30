@@ -47,22 +47,22 @@
   :type 'string)
 
 (defcustom flymake-cppcheck-language
-  "c"
+  nil
   "Force particular language."
   :type 'string)
 
 (defcustom flymake-cppcheck-jobs
-  4
+  nil
   "Number of jobs to check with."
   :type 'integer)
 
 (defcustom flymake-cppcheck-platform
-  "native"
+  nil
   "Target platform to determine types and sizes."
   :type 'string)
 
 (defcustom flymake-cppcheck-std
-  "c99"
+  nil
   "Target C/C++ standard."
   :type 'string)
 
@@ -81,13 +81,17 @@
       (setq flymake-cppcheck--proc nil))
     (let ((source (current-buffer))
           (cmd (list flymake-cppcheck-program
-                     (if flymake-cppcheck-additional-checks (format "%s=%s" "--enable" flymake-cppcheck-additional-checks))
-                     (if flymake-cppcheck-jobs (format "%s %d" "-j" flymake-cppcheck-jobs))
-                     (if flymake-cppcheck-language (format "%s=%s" "--language" flymake-cppcheck-language))
-                     (if flymake-cppcheck-platform (format "%s=%s" "--platform" flymake-cppcheck-platform))
-                     (if flymake-cppcheck-std (format "%s=%s" "--std" flymake-cppcheck-std))
-                     "--template='{file}:{line}:{column}:{severity}:{id}:{message}'" "--quiet" "--suppress=unusedFunction"
+                     (if flymake-cppcheck-additional-checks (format "%s=%s" "--enable" flymake-cppcheck-additional-checks) "")
+                     (if flymake-cppcheck-jobs (format "%s %d" "-j" flymake-cppcheck-jobs) "")
+                     (if flymake-cppcheck-language (format "%s=%s" "--language" flymake-cppcheck-language) "")
+                     (if flymake-cppcheck-platform (format "%s=%s" "--platform" flymake-cppcheck-platform) "")
+                     (if flymake-cppcheck-std (format "%s=%s" "--std" flymake-cppcheck-std) "")
+                     "--suppress=missingIncludeSystem"
+                     "--suppress=unusedFunction"
+                     "--quiet"
+                     "--template='{file}:{line}:{column}:{severity}:{id}:{message}'"
                      (format "%s" (buffer-file-name)))))
+      (message "OUT: %s" cmd)
       (save-restriction
         (widen)
         (setq
