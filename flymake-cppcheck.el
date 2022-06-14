@@ -36,37 +36,57 @@
   :prefix "flymake-cppcheck-"
   :group 'tools)
 
-(defcustom flymake-cppcheck-program
-  (executable-find "cppcheck")
+(defcustom flymake-cppcheck-program (executable-find "cppcheck")
   "The path to the `cppcheck' executable."
   :type 'string)
 
-(defcustom flymake-cppcheck-additional-checks
-  "warning,style,performance,portability,information"
+(defcustom flymake-cppcheck-additional-checks '(warning style performance portability information)
   "Additional checks to enable."
-  :type 'string)
+  :type '(repeat (symbol))
+  :options '((const warning)
+             (const style)
+             (const performance)
+             (const portability)
+             (const information)))
 
-(defcustom flymake-cppcheck-language
-  nil
+(defcustom flymake-cppcheck-language 'c
   "Force particular language."
-  :type 'string)
+  :type '(choice (const c)
+                 (const c++)))
 
-(defcustom flymake-cppcheck-jobs
-  nil
+(defcustom flymake-cppcheck-jobs nil
   "Number of jobs to check with."
   :type 'integer)
 
-(defcustom flymake-cppcheck-platform
-  nil
+(defcustom flymake-cppcheck-platform 'native
   "Target platform to determine types and sizes."
-  :type 'string)
+  :type '(choice (const unix32)
+                 (const unix64)
+                 (const win32A)
+                 (const win32W)
+                 (const win64)
+                 (const avr8)
+                 (const elbrus-e1cp)
+                 (const pic8)
+                 (const pic8-enhanced)
+                 (const pic16)
+                 (const mips32)
+                 (const native)
+                 (const unspecified)))
 
-(defcustom flymake-cppcheck-std
-  nil
+(defcustom flymake-cppcheck-std 'c11
   "Target C/C++ standard."
-  :type 'string)
+  :type '(choice (const c89)
+                 (const c99)
+                 (const c11)
+                 (const c++03)
+                 (const c++11)
+                 (const c++14)
+                 (const c++17)
+                 (const c++20)))
 
 (defvar-local flymake-cppcheck--proc nil)
+
 
 (defun flymake-cppcheck (report-fn &rest _args)
   "Flymake backend for cppcheck report using REPORT-FN."
@@ -76,12 +96,17 @@
     (if (or (null flymake-cppcheck--executable-path)
             (not (file-executable-p flymake-cppcheck--executable-path)))
         (error "Could not find '%s' executable" flymake-cppcheck-program))
+    (dolist (var (split-string (shell-command-to-string (concat flymake-cppcheck-program " --version"))))
+      (let ((ver (string-to-number var)))
+        (if (and (> ver 0)
+                 (< ver 2.8))
+            (error "Cppcheck version (%s) too old for this version of `flymake-cppcheck'" ver))))
     (when (process-live-p flymake-cppcheck--proc)
       (kill-process flymake-cppcheck--proc)
       (setq flymake-cppcheck--proc nil))
     (let ((source (current-buffer))
           (cmd (list flymake-cppcheck-program
-                     (if flymake-cppcheck-additional-checks (format "%s=%s" "--enable" flymake-cppcheck-additional-checks) "")
+                     (if flymake-cppcheck-additional-checks (format "%s=%s" "--enable" (mapconcat 'symbol-name flymake-cppcheck-additional-checks ",")) "")
                      (if flymake-cppcheck-jobs (format "%s %d" "-j" flymake-cppcheck-jobs) "")
                      (if flymake-cppcheck-language (format "%s=%s" "--language" flymake-cppcheck-language) "")
                      (if flymake-cppcheck-platform (format "%s=%s" "--platform" flymake-cppcheck-platform) "")
@@ -124,7 +149,7 @@
                                                                    (t :warning))
                                                              (format "%s:%s" (match-string 4) (match-string 5))) diags)))
                           (funcall report-fn (reverse diags))))
-                    (flymake-log :warning "Canceling obsolete check %s"
+                    (flymake-log :debug "Canceling obsolete check %s"
                                  proc))
                 (kill-buffer (process-buffer proc)))))))))))
 
