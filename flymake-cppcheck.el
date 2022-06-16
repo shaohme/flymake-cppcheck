@@ -157,6 +157,7 @@
         ;; if "compile-commands.json" are found try deduce headers from it
         (let* ((comp-com-filename "compile_commands.json")
                (comp-com-dir (locate-dominating-file source-file-name comp-com-filename)))
+          ;; prepare full file name and check for readability
           (when (and comp-com-filename source-file-name)
             (let ((comp-com-file (expand-file-name comp-com-filename comp-com-dir)))
               (when (file-readable-p comp-com-file)
@@ -184,6 +185,7 @@
       ;; lastly put the cppcheck program first in the args list for
       ;; execution later.
       (push flymake-cppcheck-program cppcheck-args)
+      (message "out: %s" cppcheck-args)
       (save-restriction
         (widen)
         (setq
@@ -204,7 +206,7 @@
                           (while (search-forward-regexp "\\(.+\\):\\([0-9]+\\):\\([0-9]+\\):\\(.*\\):\\(.*\\):\\(.*\\)$" nil t)
                             (let* ((file-path (match-string 1)) ;full file path or special name
                                    ;; expect "region" to only have 2 values (start . end)
-                                   (region (flymake-diag-region source (string-to-number (match-string 1)) (string-to-number (match-string 2))))
+                                   (region (flymake-diag-region source (string-to-number (match-string 2)) (string-to-number (match-string 3))))
                                    (error-type-string (match-string 4)))
                               ;; cppcheck will sometimes output
                               ;; errors on other files than the
@@ -212,16 +214,9 @@
                               ;; "nofile" entries should be included though.
                               (when (or (string-suffix-p source-file-name file-path)
                                         (string-suffix-p "nofile" file-path))
-                                ;; treat "noValidConfiguration"
-                                ;; differently as it might hint
-                                ;; something wrong with headers
-                                (if (string-suffix-p "noValidConfiguration" (match-string 5))
-                                    (push (flymake-make-diagnostic source
-                                                                   (car region)
-                                                                   (cdr region)
-                                                                   :error
-                                                                   (format "%s:%s" (match-string 5) (match-string 6))) diags)
-                                  (push (flymake-make-diagnostic source
+                                ;; do not treat "noValidConfiguration"
+                                ;; differently for now.
+                                (push (flymake-make-diagnostic source
                                                                  (car region)
                                                                  (cdr region)
                                                                  (cond ((equal error-type-string "error") :error)
@@ -231,7 +226,7 @@
                                                                        ((equal error-type-string "performance") :note)
                                                                        ((equal error-type-string "portability") :note)
                                                                        (t :warning))
-                                                                 (format "%s:%s" (match-string 5) (match-string 6))) diags)))))
+                                                                 (format "%s:%s" (match-string 5) (match-string 6))) diags))))
                           (funcall report-fn (reverse diags))))
                     (flymake-log :debug "Canceling obsolete check %s"
                                  proc))
