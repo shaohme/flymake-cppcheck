@@ -45,8 +45,16 @@
   "The path to the cppcheck executable."
   :type 'string)
 
-(defcustom flymake-cppcheck-header-includes nil
-  "Paths to header files include in cppcheck."
+(defcustom flymake-cppcheck-use-headers nil
+  "If non-nil `flymake-cppcheck' will try include headers when
+checking buffers. This can be useful to disable if header checks
+in 'cppcheck' produces too many errors or otherwise fails."
+  :type 'boolean)
+
+(defcustom flymake-cppcheck-header-includes '()
+  "Paths to header files include in cppcheck. If `nil',
+`flymake-cppcheck' will try detect headers from
+'compile-commands.json' or similar files."
   :type '(repeat (string)))
 
 (defcustom flymake-cppcheck-additional-checks '(warning style performance portability information)
@@ -132,14 +140,14 @@
            (source-file-name (buffer-file-name source))
            (cppcheck-args (list
                            ;; file includes are expected to be full file paths to have -I appended to them
-                           (if flymake-cppcheck-header-includes (mapconcat #'(lambda (x) (format "-I%s" x)) flymake-cppcheck-header-includes " ") "")
+                           (if (and flymake-cppcheck-use-headers flymake-cppcheck-header-includes) (mapconcat #'(lambda (x) (format "-I%s" x)) flymake-cppcheck-header-includes " ") "")
                            (if flymake-cppcheck-additional-checks (format "%s=%s" "--enable" (mapconcat 'symbol-name flymake-cppcheck-additional-checks ",")) "")
                            (if flymake-cppcheck-jobs (format "%s %d" "-j" flymake-cppcheck-jobs) "")
                            ;; assume a language. if not try deduce it from file extension
                            (format "%s=%s" "--language" (if flymake-cppcheck-language
                                                             flymake-cppcheck-language
                                                           (if (and source-file-name
-                                                                   (member (file-name-extension source-file-name)  '("cpp" "cc" "C" "c++" "cxx"))) "c++" "c")))
+                                                                   (member (file-name-extension source-file-name)  '("cpp" "cc" "C" "c++" "cxx" "hpp" "hh"))) "c++" "c")))
                            (if flymake-cppcheck-platform (format "%s=%s" "--platform" flymake-cppcheck-platform) "")
                            (if flymake-cppcheck-std (format "%s=%s" "--std" flymake-cppcheck-std) "")
                            (if flymake-cppcheck-max-ctu-depth (format "%s=%d" "--max-ctu-depth" flymake-cppcheck-max-ctu-depth) "")
@@ -152,8 +160,9 @@
                            "--quiet"
                            "--template='{file}:{line}:{column}:{severity}:{id}:{message}'"
                            (format "%s" source-file-name))))
-      ;; if no includes are customized try search for sensible includes
-      (when (not (or flymake-cppcheck-header-includes flymake-cppcheck-std))
+      ;; if no includes or no std is customized try search for
+      ;; sensible values from project files
+      (when (or flymake-cppcheck-use-headers (not flymake-cppcheck-std))
         ;; if "compile-commands.json" are found try deduce headers from it
         (let* ((comp-com-filename "compile_commands.json")
                (comp-com-dir (locate-dominating-file source-file-name comp-com-filename)))
@@ -170,10 +179,11 @@
                   ;; json might not contain object matching the file
                   ;; being checked
                   (when file-obj
-                    (if (not flymake-cppcheck-header-includes)
+                    (if (and flymake-cppcheck-use-headers (not flymake-cppcheck-header-includes))
                         ;; search `arguments' property for all
                         ;; arguments starting with "-I". these are
                         ;; assumed to be header arguments.
+                        ;; TODO: sometimes -I args have whitespace in between, like so "-I /a/b/c"
                         (setq cppcheck-args (append (seq-filter (lambda (elt) (string-prefix-p "-I" elt)) (cdr (assoc 'arguments file-obj))) cppcheck-args)))
                     (when (not flymake-cppcheck-std)
                       (let ((std-out (car (seq-filter (lambda (elt) (string-prefix-p "-std=" elt)) (cdr (assoc 'arguments file-obj))))))
