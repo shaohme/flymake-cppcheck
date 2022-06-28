@@ -110,7 +110,31 @@ in 'cppcheck' produces too many errors or otherwise fails."
 (defvar-local flymake-cppcheck--proc nil)
 
 
-(defun flymake-cppcheck--find-args ())
+(defun shell-command-line-to-argument-list (command-line)
+  (let (args arg inquote)
+    (with-temp-buffer
+      (insert command-line)
+      (goto-char (point-min))
+      (while (not (eobp))
+        (cond ((looking-at "\\s-+")
+               (cond ((not inquote)
+                      (when arg (push arg args))
+                      (setq arg nil))
+                     (t (setq arg (concat arg (match-string 0))))))
+              ((looking-at "['\"]")
+               (let ((ch (match-string 0)))
+                 (cond ((not inquote)
+                        (setq inquote ch)
+                        (setq arg (or arg "")))
+                       ((equal inquote ch)
+                        (setq inquote nil))
+                       (t (setq arg (concat arg ch))))))
+              ((or (looking-at "\\\\\\(.?\\)") (looking-at "\\(.\\)"))
+               (setq arg (concat (or arg "") (match-string 1)))))
+        (goto-char (match-end 0)))
+      (when inquote (error "Missing closing quote"))
+      (when arg (push arg args))
+      (nreverse args))))
 
 
 (defun flymake-cppcheck (report-fn &rest _args)
@@ -153,7 +177,7 @@ in 'cppcheck' produces too many errors or otherwise fails."
                            (if flymake-cppcheck-max-ctu-depth (format "%s=%d" "--max-ctu-depth" flymake-cppcheck-max-ctu-depth) "")
                            ;; TODO: cppcheck complains about missing system includes even if /usr/include is included.
                            ;; suppress it for now.
-                           "--suppress=missingIncludeSystem"
+                           (if flymake-cppcheck-use-headers "--suppress=missingIncludeSystem" "")
                            ;; TODO: suppress for now. not used by me at least.
                            "--suppress=unusedFunction"
                            ;; do not clutter stdout
@@ -179,22 +203,25 @@ in 'cppcheck' produces too many errors or otherwise fails."
                   ;; json might not contain object matching the file
                   ;; being checked
                   (when file-obj
-                    (if (and flymake-cppcheck-use-headers (not flymake-cppcheck-header-includes))
-                        ;; search `arguments' property for all
+                    (let ((allargs (vconcat (shell-command-line-to-argument-list (cdr (assoc 'command file-obj))) (cdr (assoc 'arguments file-obj)))))
+                      (when (and flymake-cppcheck-use-headers (not flymake-cppcheck-header-includes))
+                        ;; search `arguments' and `command' properties for all
                         ;; arguments starting with "-I". these are
                         ;; assumed to be header arguments.
+                        ;; both are searched because not all build tools, like CMake, separate command from args.
                         ;; TODO: sometimes -I args have whitespace in between, like so "-I /a/b/c"
-                        (setq cppcheck-args (append (seq-filter (lambda (elt) (string-prefix-p "-I" elt)) (cdr (assoc 'arguments file-obj))) cppcheck-args)))
-                    (when (not flymake-cppcheck-std)
-                      (let ((std-out (car (seq-filter (lambda (elt) (string-prefix-p "-std=" elt)) (cdr (assoc 'arguments file-obj))))))
-                        (if std-out
-                            ;; TODO: filter out incompatible std
-                            ;; args. cppcheck might not be up to date
-                            ;; with latest compilers.
-                            (push (format "-%s" std-out) cppcheck-args)))))))))))
+                        (setq cppcheck-args (append (seq-filter (lambda (elt) (string-prefix-p "-I" elt)) allargs) cppcheck-args)))
+                      (when (not flymake-cppcheck-std)
+                        (let ((std-out (car (seq-filter (lambda (elt) (string-prefix-p "-std=" elt)) allargs))))
+                          (if std-out
+                              ;; TODO: filter out incompatible std
+                              ;; args. cppcheck might not be up to date
+                              ;; with latest compilers.
+                              (push (format "-%s" std-out) cppcheck-args))))))))))))
       ;; lastly put the cppcheck program first in the args list for
       ;; execution later.
       (push flymake-cppcheck-program cppcheck-args)
+      (message "out %s" cppcheck-args)
       (save-restriction
         (widen)
         (setq
@@ -226,16 +253,16 @@ in 'cppcheck' produces too many errors or otherwise fails."
                                 ;; do not treat "noValidConfiguration"
                                 ;; differently for now.
                                 (push (flymake-make-diagnostic source
-                                                                 (car region)
-                                                                 (cdr region)
-                                                                 (cond ((equal error-type-string "error") :error)
-                                                                       ((equal error-type-string "style") :warning)
-                                                                       ((equal error-type-string "warning") :warning)
-                                                                       ((equal error-type-string "information") :note)
-                                                                       ((equal error-type-string "performance") :note)
-                                                                       ((equal error-type-string "portability") :note)
-                                                                       (t :warning))
-                                                                 (format "%s:%s" (match-string 5) (match-string 6))) diags))))
+                                                               (car region)
+                                                               (cdr region)
+                                                               (cond ((equal error-type-string "error") :error)
+                                                                     ((equal error-type-string "style") :warning)
+                                                                     ((equal error-type-string "warning") :warning)
+                                                                     ((equal error-type-string "information") :note)
+                                                                     ((equal error-type-string "performance") :note)
+                                                                     ((equal error-type-string "portability") :note)
+                                                                     (t :warning))
+                                                               (format "%s:%s" (match-string 5) (match-string 6))) diags))))
                           (funcall report-fn (reverse diags))))
                     (flymake-log :debug "Canceling obsolete check %s"
                                  proc))
