@@ -221,7 +221,6 @@ in 'cppcheck' produces too many errors or otherwise fails."
       ;; lastly put the cppcheck program first in the args list for
       ;; execution later.
       (push flymake-cppcheck-program cppcheck-args)
-      (message "out %s" cppcheck-args)
       (save-restriction
         (widen)
         (setq
