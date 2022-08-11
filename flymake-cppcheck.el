@@ -212,12 +212,14 @@ in 'cppcheck' produces too many errors or otherwise fails."
                         ;; TODO: sometimes -I args have whitespace in between, like so "-I /a/b/c"
                         (setq cppcheck-args (append (seq-filter (lambda (elt) (string-prefix-p "-I" elt)) allargs) cppcheck-args)))
                       (when (not flymake-cppcheck-std)
-                        (let ((std-out (car (seq-filter (lambda (elt) (string-prefix-p "-std=" elt)) allargs))))
-                          (if std-out
+                        (let* ((std-out (car (seq-filter (lambda (elt) (string-prefix-p "-std=" elt)) allargs)))
+                               (std-arg (car (cdr (split-string std-out "=")))))
+                          (if std-arg
                               ;; TODO: filter out incompatible std
                               ;; args. cppcheck might not be up to date
                               ;; with latest compilers.
-                              (push (format "-%s" std-out) cppcheck-args))))))))))))
+                              (push (format "--std=%s" (cond ((string-prefix-p "gnu" std-arg) (format "c%s" (car (cdr (split-string std-arg "gnu")))))
+                                                        (t std-out))) cppcheck-args))))))))))))
       ;; lastly put the cppcheck program first in the args list for
       ;; execution later.
       (push flymake-cppcheck-program cppcheck-args)
@@ -231,40 +233,42 @@ in 'cppcheck' produces too many errors or otherwise fails."
           :buffer (generate-new-buffer " *flymake-cppcheck*")
           :command cppcheck-args
           :sentinel
-          (lambda (proc _event)
+          (lambda (proc event)
             (when (eq 'exit (process-status proc))
               (unwind-protect
                   (if (with-current-buffer source (eq proc flymake-cppcheck--proc))
                       (with-current-buffer (process-buffer proc)
-                        (goto-char (point-min))
                         (let ((diags))
-                          (while (search-forward-regexp "\\(.+\\):\\([0-9]+\\):\\([0-9]+\\):\\(.*\\):\\(.*\\):\\(.*\\)$" nil t)
-                            (let* ((file-path (match-string 1)) ;full file path or special name
-                                   ;; expect "region" to only have 2 values (start . end)
-                                   (region (flymake-diag-region source (string-to-number (match-string 2)) (string-to-number (match-string 3))))
-                                   (error-type-string (match-string 4)))
-                              ;; cppcheck will sometimes output
-                              ;; errors on other files than the
-                              ;; current buffer. filter those away.
-                              ;; "nofile" entries should be included though.
-                              (when (or (string-suffix-p source-file-name file-path)
-                                        (string-suffix-p "nofile" file-path))
-                                ;; do not treat "noValidConfiguration"
-                                ;; differently for now.
-                                (push (flymake-make-diagnostic source
-                                                               (car region)
-                                                               (cdr region)
-                                                               (cond ((equal error-type-string "error") :error)
-                                                                     ((equal error-type-string "style") :warning)
-                                                                     ((equal error-type-string "warning") :warning)
-                                                                     ((equal error-type-string "information") :note)
-                                                                     ((equal error-type-string "performance") :note)
-                                                                     ((equal error-type-string "portability") :note)
-                                                                     (t :warning))
-                                                               (format "%s:%s" (match-string 5) (match-string 6))) diags))))
+                          (if (string-prefix-p "exited abnormally" event)
+                              (flymake-log :error (format "event='%s' command_list='%s' output='%s'" (string-trim event) cppcheck-args (buffer-string)) proc)
+                            (progn
+                              (goto-char (point-min))
+                              (while (search-forward-regexp "\\(.+\\):\\([0-9]+\\):\\([0-9]+\\):\\(.*\\):\\(.*\\):\\(.*\\)$" nil t)
+                                (let* ((file-path (match-string 1)) ;full file path or special name
+                                       ;; expect "region" to only have 2 values (start . end)
+                                       (region (flymake-diag-region source (string-to-number (match-string 2)) (string-to-number (match-string 3))))
+                                       (error-type-string (match-string 4)))
+                                  ;; cppcheck will sometimes output
+                                  ;; errors on other files than the
+                                  ;; current buffer. filter those away.
+                                  ;; "nofile" entries should be included though.
+                                  (when (or (string-suffix-p source-file-name file-path)
+                                            (string-suffix-p "nofile" file-path))
+                                    ;; do not treat "noValidConfiguration"
+                                    ;; differently for now.
+                                    (push (flymake-make-diagnostic source
+                                                                   (car region)
+                                                                   (cdr region)
+                                                                   (cond ((equal error-type-string "error") :error)
+                                                                         ((equal error-type-string "style") :warning)
+                                                                         ((equal error-type-string "warning") :warning)
+                                                                         ((equal error-type-string "information") :note)
+                                                                         ((equal error-type-string "performance") :note)
+                                                                         ((equal error-type-string "portability") :note)
+                                                                         (t :warning))
+                                                                   (format "%s:%s" (match-string 5) (match-string 6))) diags))))))
                           (funcall report-fn (reverse diags))))
-                    (flymake-log :debug "Canceling obsolete check %s"
-                                 proc))
+                    (flymake-log :debug "Canceling obsolete check %s" proc))
                 (kill-buffer (process-buffer proc)))))))))))
 
 ;;;###autoload
