@@ -4,7 +4,7 @@
 ;;
 ;; Author: Martin Kjær Jørgensen <mkj@gotu.dk>
 ;; Created: 15 December 2021
-;; Version: 0.1.1
+;; Version: 0.1.2
 ;; Package-Requires: ((emacs "26.1"))
 ;; URL: https://github.com/shaohme/flymake-cppcheck
 ;;; Commentary:
@@ -46,14 +46,15 @@
   :type 'string)
 
 (defcustom flymake-cppcheck-use-headers nil
-  "If non-nil `flymake-cppcheck' will try include headers when
-checking buffers. This can be useful to disable if header checks
+  "Tell 'cppcheck' to use headers when checking.
+If non-nil `flymake-cppcheck' will try include headers when
+checking buffers.  This can be useful to disable if header checks
 in 'cppcheck' produces too many errors or otherwise fails."
   :type 'boolean)
 
 (defcustom flymake-cppcheck-header-includes '()
-  "Paths to header files include in cppcheck. If `nil',
-`flymake-cppcheck' will try detect headers from
+  "Paths to header files include in cppcheck.
+If nil,`flymake-cppcheck' will try detect headers from
 'compile-commands.json' or similar files."
   :type '(repeat (string)))
 
@@ -213,13 +214,14 @@ in 'cppcheck' produces too many errors or otherwise fails."
                         (setq cppcheck-args (append (seq-filter (lambda (elt) (string-prefix-p "-I" elt)) allargs) cppcheck-args)))
                       (when (not flymake-cppcheck-std)
                         (let* ((std-out (car (seq-filter (lambda (elt) (string-prefix-p "-std=" elt)) allargs)))
-                               (std-arg (car (cdr (split-string std-out "=")))))
+                               (std-arg (if std-out (car (cdr (split-string std-out "=")))
+                                          nil)))
                           (if std-arg
                               ;; TODO: filter out incompatible std
                               ;; args. cppcheck might not be up to date
                               ;; with latest compilers.
                               (push (format "--std=%s" (cond ((string-prefix-p "gnu" std-arg) (format "c%s" (car (cdr (split-string std-arg "gnu")))))
-                                                        (t std-out))) cppcheck-args))))))))))))
+                                                             (t std-arg))) cppcheck-args))))))))))))
       ;; lastly put the cppcheck program first in the args list for
       ;; execution later.
       (push flymake-cppcheck-program cppcheck-args)
