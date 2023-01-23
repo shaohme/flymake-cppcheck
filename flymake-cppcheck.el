@@ -4,7 +4,7 @@
 ;;
 ;; Author: Martin Kjær Jørgensen <mkj@gotu.dk>
 ;; Created: 15 December 2021
-;; Version: 0.1.2
+;; Version: 0.1.3
 ;; Package-Requires: ((emacs "26.1"))
 ;; URL: https://github.com/shaohme/flymake-cppcheck
 ;;; Commentary:
@@ -45,18 +45,12 @@
   "The path to the cppcheck executable."
   :type 'string)
 
-(defcustom flymake-cppcheck-use-headers nil
+(defcustom flymake-cppcheck-use-headers t
   "Tell 'cppcheck' to use headers when checking.
 If non-nil `flymake-cppcheck' will try include headers when
 checking buffers.  This can be useful to disable if header checks
 in 'cppcheck' produces too many errors or otherwise fails."
   :type 'boolean)
-
-(defcustom flymake-cppcheck-header-includes '()
-  "Paths to header files include in cppcheck.
-If nil,`flymake-cppcheck' will try detect headers from
-'compile-commands.json' or similar files."
-  :type '(repeat (string)))
 
 (defcustom flymake-cppcheck-additional-checks '(warning style performance portability information)
   "Additional checks to enable."
@@ -72,25 +66,9 @@ If nil,`flymake-cppcheck' will try detect headers from
   :type '(choice (const c)
                  (const c++)))
 
-(defcustom flymake-cppcheck-jobs nil
+(defcustom flymake-cppcheck-jobs 4
   "Number of jobs to check with."
   :type 'integer)
-
-(defcustom flymake-cppcheck-platform 'native
-  "Target platform to determine types and sizes."
-  :type '(choice (const unix32)
-                 (const unix64)
-                 (const win32A)
-                 (const win32W)
-                 (const win64)
-                 (const avr8)
-                 (const elbrus-e1cp)
-                 (const pic8)
-                 (const pic8-enhanced)
-                 (const pic16)
-                 (const mips32)
-                 (const native)
-                 (const unspecified)))
 
 (defcustom flymake-cppcheck-std nil
   "Target C/C++ standard."
@@ -103,9 +81,13 @@ If nil,`flymake-cppcheck' will try detect headers from
                  (const c++17)
                  (const c++20)))
 
-(defcustom flymake-cppcheck-max-ctu-depth 2
-  "Max depth in whole program analysis."
+(defcustom flymake-cppcheck-max-configs 32
+  "Maximum number of configurations to check in a file before skipping it."
   :type 'integer)
+
+(defcustom flymake-cppcheck-global-suppress '("missingIncludeSystem" "*:*include/tau/*")
+  "Suppress list added to all buffers."
+  :type 'list)
 
 
 (defvar-local flymake-cppcheck--proc nil)
@@ -164,29 +146,28 @@ If nil,`flymake-cppcheck' will try detect headers from
     (let* ((source (current-buffer))
            (source-file-name (buffer-file-name source))
            (cppcheck-args (list
+                           ;; (shell-command-to-string "echo | cc -v -x c -E -") could be
+                           ;; used to find system includes if needed
                            ;; file includes are expected to be full file paths to have -I appended to them
-                           (if (and flymake-cppcheck-use-headers flymake-cppcheck-header-includes) (mapconcat #'(lambda (x) (format "-I%s" x)) flymake-cppcheck-header-includes " ") "")
-                           (if flymake-cppcheck-additional-checks (format "%s=%s" "--enable" (mapconcat 'symbol-name flymake-cppcheck-additional-checks ",")) "")
-                           (if flymake-cppcheck-jobs (format "%s %d" "-j" flymake-cppcheck-jobs) "")
+                           (if flymake-cppcheck-additional-checks (format "--enable=%s" (mapconcat 'symbol-name flymake-cppcheck-additional-checks ",")) "")
+                           (if flymake-cppcheck-jobs (format "-j %d" flymake-cppcheck-jobs) "")
                            ;; assume a language. if not try deduce it from file extension
                            (format "%s=%s" "--language" (if flymake-cppcheck-language
                                                             flymake-cppcheck-language
                                                           (if (and source-file-name
                                                                    (member (file-name-extension source-file-name)  '("cpp" "cc" "C" "c++" "cxx" "hpp" "hh"))) "c++" "c")))
-                           (if flymake-cppcheck-platform (format "%s=%s" "--platform" flymake-cppcheck-platform) "")
-                           (if flymake-cppcheck-std (format "%s=%s" "--std" flymake-cppcheck-std) "")
-                           (if flymake-cppcheck-max-ctu-depth (format "%s=%d" "--max-ctu-depth" flymake-cppcheck-max-ctu-depth) "")
-                           ;; TODO: cppcheck complains about missing system includes even if /usr/include is included.
-                           ;; suppress it for now.
-                           (if flymake-cppcheck-use-headers "--suppress=missingIncludeSystem" "")
-                           ;; TODO: suppress for now. not used by me at least.
-                           "--suppress=unusedFunction"
+                           (if flymake-cppcheck-std (format "--std=%s" flymake-cppcheck-std) "")
+                           (if flymake-cppcheck-max-configs (format "--max-configs=%d" flymake-cppcheck-max-configs) "")
+                           ;; enable inline suppressions in source files
+                           "--inline-suppr"
                            ;; do not clutter stdout
                            "--quiet"
                            "--template='{file}:{line}:{column}:{severity}:{id}:{message}'"
                            (format "%s" source-file-name))))
       ;; if no includes or no std is customized try search for
       ;; sensible values from project files
+      (dolist (x flymake-cppcheck-global-suppress)
+        (setq cppcheck-args (append (list (format "--suppress=%s" x)) cppcheck-args)))
       (when (or flymake-cppcheck-use-headers (not flymake-cppcheck-std))
         ;; if "compile-commands.json" are found try deduce headers from it
         (let* ((comp-com-filename "compile_commands.json")
@@ -205,13 +186,14 @@ If nil,`flymake-cppcheck' will try detect headers from
                   ;; being checked
                   (when file-obj
                     (let ((allargs (vconcat (shell-command-line-to-argument-list (cdr (assoc 'command file-obj))) (cdr (assoc 'arguments file-obj)))))
-                      (when (and flymake-cppcheck-use-headers (not flymake-cppcheck-header-includes))
+                      (when flymake-cppcheck-use-headers
                         ;; search `arguments' and `command' properties for all
                         ;; arguments starting with "-I". these are
                         ;; assumed to be header arguments.
                         ;; both are searched because not all build tools, like CMake, separate command from args.
                         ;; TODO: sometimes -I args have whitespace in between, like so "-I /a/b/c"
                         (setq cppcheck-args (append (seq-filter (lambda (elt) (string-prefix-p "-I" elt)) allargs) cppcheck-args)))
+                      (setq cppcheck-args (append (seq-filter (lambda (elt) (string-prefix-p "-D" elt)) allargs) cppcheck-args))
                       (when (not flymake-cppcheck-std)
                         (let* ((std-out (car (seq-filter (lambda (elt) (string-prefix-p "-std=" elt)) allargs)))
                                (std-arg (if std-out (car (cdr (split-string std-out "=")))
