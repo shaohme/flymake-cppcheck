@@ -4,7 +4,7 @@
 ;;
 ;; Author: Martin Kjær Jørgensen <mkj@gotu.dk>
 ;; Created: 15 December 2021
-;; Version: 0.1.3
+;; Version: 0.1.4
 ;; Package-Requires: ((emacs "26.1"))
 ;; URL: https://github.com/shaohme/flymake-cppcheck
 ;;; Commentary:
@@ -235,16 +235,15 @@ in 'cppcheck' produces too many errors or otherwise fails."
                                   ;; cppcheck will sometimes output
                                   ;; errors on other files than the
                                   ;; current buffer. filter those away.
-                                  ;; "nofile" entries should be included though.
-                                  (when (or (string-suffix-p source-file-name file-path)
-                                            (string-suffix-p "nofile" file-path))
+                                  ;; "nofile" entries are ignored for now.
+                                  (when (string-suffix-p source-file-name file-path)
                                     ;; do not treat "noValidConfiguration"
                                     ;; differently for now.
                                     (push (flymake-make-diagnostic source
                                                                    (car region)
                                                                    (cdr region)
                                                                    (cond ((equal error-type-string "error") :error)
-                                                                         ((equal error-type-string "style") :warning)
+                                                                         ((equal error-type-string "style") :note)
                                                                          ((equal error-type-string "warning") :warning)
                                                                          ((equal error-type-string "information") :note)
                                                                          ((equal error-type-string "performance") :note)
