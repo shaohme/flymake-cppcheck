@@ -133,11 +133,12 @@ in 'cppcheck' produces too many errors or otherwise fails."
     ;; try derive the cppcheck version. if too old, command line
     ;; args might not work. iterate the string parts of version
     ;; output. any of the outputs might be a decimal number.
-    (dolist (var (split-string (shell-command-to-string (concat flymake-cppcheck-program " --version"))))
-      (let ((ver (string-to-number var)))
-        (if (and (> ver 0) ; if zero, probably an empty/non-number value
-                 (< ver 2.8))
-            (error "Cppcheck version (%s) too old for this version of `flymake-cppcheck'" ver))))
+    ;; "2.10" get parsed as "2.1"
+    ;; (dolist (var (split-string (shell-command-to-string (concat flymake-cppcheck-program " --version"))))
+    ;;   (let ((ver (string-to-number var)))
+    ;;     (if (and (> ver 0) ; if zero, probably an empty/non-number value
+    ;;              (< ver 2.8))
+    ;;         (error "Cppcheck version (%s) too old for this version of `flymake-cppcheck'" ver))))
     ;; kill already running cppcheck process
     (when (process-live-p flymake-cppcheck--proc)
       (kill-process flymake-cppcheck--proc)
