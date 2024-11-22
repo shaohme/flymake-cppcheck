@@ -1,6 +1,7 @@
 # flymake-cppcheck
 
-> **_WARNING:_** This is still work-in-progress
+> [!IMPORTANT]
+> Project has moved to [Codeberg](https://codeberg.org/shaohme/flymake-cppcheck)
 
 A Flymake backend for validating c/c++ files for Emacs (26+), using
 [cppcheck](https://cppcheck.sourceforge.io/)
